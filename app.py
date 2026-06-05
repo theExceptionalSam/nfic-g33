@@ -22,7 +22,7 @@ import matplotlib.cm as cm
 MODEL_NAME  = "tf_efficientnetv2_m"
 NUM_CLASSES = 21
 IMG_SIZE    = 224
-CHECKPOINT  = "best_fold0.pth"
+CHECKPOINT  = "checkpoints/best_fold0.pth"
 
 # ImageNet normalisation (standard for timm models)
 MEAN = [0.485, 0.456, 0.406]
