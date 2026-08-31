@@ -2,17 +2,6 @@
 🍜 Nigerian Food & Snacks Classifier — Polished Edition
 Streamlit App · tf_efficientnetv2_m backbone · Custom head · Grad-CAM
 
-Redesigned with:
-  · Refined warm-AI visual identity (charcoal base + Nigerian gold/terracotta accents)
-  · Clearer information hierarchy and breathing room
-  · Animated, confidence-aware probability bars
-  · Larger, more inviting upload zone with hover feedback
-  · Circular confidence gauge on the top prediction
-  · Cleaner Grad-CAM triptych with legend
-  · Card-grid "All Classes" browser with F1 visualization
-  · Better empty, loading, and error states
-"""
-
 from __future__ import annotations
 
 import io
@@ -1003,13 +992,16 @@ if uploaded and model_ok:
         </div>
         """, unsafe_allow_html=True)
 
-        prob_html = '<div class="prob-list">'
+        # Wrap the list in its own container, then render each row via its own
+        # st.markdown call. A single concatenated HTML string would be too long
+        # and Streamlit would fall back to showing raw markup as code.
+        st.markdown('<div class="prob-list">', unsafe_allow_html=True)
         for rank, (name, conf) in enumerate(zip(top_names, top_probs)):
             emoji = FOOD_EMOJIS.get(name, "🍽️")
             pct   = conf * 100
             is_top = rank == 0
             top_cls = " top" if is_top else ""
-            prob_html += f"""
+            st.markdown(f"""
             <div class="prob-row{top_cls}">
               <div class="prob-rank">#{rank+1}</div>
               <div class="prob-label">
@@ -1021,9 +1013,8 @@ if uploaded and model_ok:
                 <div class="prob-bar" style="width:{pct:.1f}%"></div>
               </div>
             </div>
-            """
-        prob_html += '</div>'
-        st.markdown(prob_html, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Grad-CAM ─────────────────────────────────────────────
     if show_gcam:
