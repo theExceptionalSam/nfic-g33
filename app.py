@@ -2,6 +2,17 @@
 🍜 Nigerian Food & Snacks Classifier — Polished Edition
 Streamlit App · tf_efficientnetv2_m backbone · Custom head · Grad-CAM
 
+Redesigned with:
+  · Refined warm-AI visual identity (charcoal base + Nigerian gold/terracotta accents)
+  · Clearer information hierarchy and breathing room
+  · Animated, confidence-aware probability bars
+  · Larger, more inviting upload zone with hover feedback
+  · Circular confidence gauge on the top prediction
+  · Cleaner Grad-CAM triptych with legend
+  · Card-grid "All Classes" browser with F1 visualization
+  · Better empty, loading, and error states
+"""
+
 from __future__ import annotations
 
 import io
