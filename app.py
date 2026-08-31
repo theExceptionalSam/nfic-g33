@@ -1,5 +1,5 @@
 """
-Nigerian Food & Snacks Classifier
+🍜 Nigerian Food & Snacks Classifier
 Streamlit App — tf_efficientnetv2_m backbone · Custom head · Grad-CAM
 Built from: group33-nigerianfoodimageeclassification-notebook.ipynb
 """
@@ -7,7 +7,6 @@ Built from: group33-nigerianfoodimageeclassification-notebook.ipynb
 import io
 import cv2
 import numpy as np
-import pandas as pd
 import streamlit as st
 import torch
 import torch.nn as nn
@@ -15,6 +14,7 @@ import torch.nn.functional as F
 import timm
 from PIL import Image
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 
 # ─────────────────────────────────────────────────────────────────
 #  CONSTANTS — pulled directly from notebook CFG + discover_dataset
@@ -23,27 +23,26 @@ MODEL_NAME  = "tf_efficientnetv2_m"
 NUM_CLASSES = 21
 IMG_SIZE    = 224
 CHECKPOINT  = "checkpoints/best_fold0.pth"
-OOF_ACCURACY = 0.8768
-OOF_MACRO_F1 = 0.7933
 
+# ImageNet normalisation (standard for timm models)
 MEAN = [0.485, 0.456, 0.406]
 STD  = [0.229, 0.224, 0.225]
 
 # Exact class order from notebook (sorted alphabetically by discover_dataset)
 CLASS_NAMES = [
-    "Abacha and Ugba (african salad)",  # 0
+    "Abacha and Ugba(african salad)",   # 0
     "Akara and Eko",                    # 1
     "Akara and Eko-Akamu",              # 2
     "Amala and Ewedu-Gbegiri",          # 3
-    "Amala and Gbegiri-Ewedu",          # 4
+    "Amala and Gbegiri- Ewedu",         # 4
     "Asaro",                            # 5
-    "Boli (bole)",                      # 6
+    "Boli(bole)",                       # 6
     "Chin Chin",                        # 7
     "Egusi Soup",                       # 8
     "Ewa-Agoyin",                       # 9
     "Fried Plantains (dodo)",           # 10
     "Jollof Rice",                      # 11
-    "Meat Pie",                         # 12
+    "Meat-pie",                         # 12
     "Moin-Moin",                        # 13
     "Nkwobi",                           # 14
     "Okro Soup",                        # 15
@@ -54,13 +53,37 @@ CLASS_NAMES = [
     "Vegetable Soup",                   # 20
 ]
 
-# Per-class F1 from out-of-fold validation
+FOOD_EMOJIS = {
+    "Abacha and Ugba(african salad)": "🥗",
+    "Akara and Eko":                  "🫓",
+    "Akara and Eko-Akamu":            "🫓",
+    "Amala and Ewedu-Gbegiri":        "🍲",
+    "Amala and Gbegiri- Ewedu":       "🍲",
+    "Asaro":                          "🍠",
+    "Boli(bole)":                     "🍌",
+    "Chin Chin":                      "🍪",
+    "Egusi Soup":                     "🥣",
+    "Ewa-Agoyin":                     "🫘",
+    "Fried Plantains (dodo)":         "🍟",
+    "Jollof Rice":                    "🍚",
+    "Meat-pie":                       "🥧",
+    "Moin-Moin":                      "🫔",
+    "Nkwobi":                         "🍖",
+    "Okro Soup":                      "🥘",
+    "Pepper Soup":                    "🌶️",
+    "Pepper-Soup":                    "🌶️",
+    "Puff-Puff":                      "🔮",
+    "Suya":                           "🍢",
+    "Vegetable Soup":                 "🥬",
+}
+
+# Per-class F1 from OOF (for info display in sidebar)
 CLASS_F1 = {
-    "Abacha and Ugba (african salad)": 0.974, "Akara and Eko": 0.012,
+    "Abacha and Ugba(african salad)": 0.974, "Akara and Eko": 0.012,
     "Akara and Eko-Akamu": 0.463, "Amala and Ewedu-Gbegiri": 0.295,
-    "Amala and Gbegiri-Ewedu": 0.350, "Asaro": 0.987, "Boli (bole)": 0.989,
+    "Amala and Gbegiri- Ewedu": 0.350, "Asaro": 0.987, "Boli(bole)": 0.989,
     "Chin Chin": 0.983, "Egusi Soup": 0.968, "Ewa-Agoyin": 0.986,
-    "Fried Plantains (dodo)": 0.979, "Jollof Rice": 0.983, "Meat Pie": 1.000,
+    "Fried Plantains (dodo)": 0.979, "Jollof Rice": 0.983, "Meat-pie": 1.000,
     "Moin-Moin": 0.969, "Nkwobi": 0.976, "Okro Soup": 0.952,
     "Pepper Soup": 0.536, "Pepper-Soup": 0.292, "Puff-Puff": 0.997,
     "Suya": 0.993, "Vegetable Soup": 0.976,
@@ -97,257 +120,136 @@ class NigerianFoodClassifier(nn.Module):
 #  PAGE CONFIG
 # ─────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Nigerian Food Classifier",
-    page_icon="🍽",
+    page_title="🍜 Nigerian Food Classifier",
+    page_icon="🍜",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ─────────────────────────────────────────────────────────────────
-#  DESIGN TOKENS + CSS
-#  A model card laid out like a chop-bar order ticket: paper ground,
-#  hairline rules, one rust accent, tabular numerals for every figure.
+#  CUSTOM CSS
 # ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
-:root {
-    --bg: #16140F;
-    --surface: #1D1A15;
-    --ink: #F2EDE3;
-    --ink-2: #9C9384;
-    --line: #38332B;
-    --accent: #C2664A;
-    --accent-ink: #E2916F;
-    --accent-soft: #2E241F;
-    --green: #8FB398;
-    --green-soft: #212821;
-    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
-}
-
-html, body, [class*="css"] { font-family: var(--sans); color: var(--ink); }
-.stApp { background: var(--bg); }
-h1, h2, h3, h4 { font-family: var(--sans); color: var(--ink); }
-p, span, label, div { font-family: var(--sans); }
-
-/* ── Header ─────────────────────────────────────────────── */
-.app-header {
-    border-bottom: 1px solid var(--line);
-    padding-bottom: 1.5rem;
-    margin-bottom: 1.75rem;
-}
-.app-header h1 {
-    font-size: 2.15rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    margin: 0 0 .5rem 0;
-    line-height: 1.15;
-}
-.app-header p {
-    color: var(--ink-2);
-    font-size: .98rem;
-    max-width: 62ch;
-    line-height: 1.5;
-    margin: 0 0 1.35rem 0;
-}
-.stat-strip {
-    display: flex;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-    width: fit-content;
-}
-.stat-block {
-    padding: .7rem 1.6rem .7rem 0;
-    margin-right: 1.6rem;
-    border-right: 1px solid var(--line);
-}
-.stat-block:last-child { border-right: none; margin-right: 0; padding-right: 0; }
-.stat-block .num {
-    font-family: var(--mono);
-    font-size: 1.35rem;
-    font-weight: 600;
-    color: var(--ink);
-    display: block;
-}
-.stat-block .lbl {
-    font-size: .78rem;
-    color: var(--ink-2);
-    margin-top: .1rem;
-    display: block;
-}
-
-/* ── Section labels ─────────────────────────────────────── */
-.section-label {
-    font-size: .8rem;
-    font-weight: 600;
-    color: var(--ink-2);
-    margin: 0 0 .6rem 0;
-}
-
-/* ── Upload zone ────────────────────────────────────────── */
-[data-testid="stFileUploader"] {
-    background: var(--surface);
-    border: 1px dashed var(--line);
-    border-radius: 6px;
-    padding: .25rem;
-}
-[data-testid="stFileUploaderDropzone"] { background: var(--surface); }
-
-/* ── Prediction ticket ──────────────────────────────────── */
-.ticket {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 1.5rem 1.6rem;
-}
-.ticket .eyebrow {
-    font-size: .78rem;
-    color: var(--ink-2);
-    margin: 0 0 .35rem 0;
-}
-.ticket .name {
-    font-size: 1.6rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    margin: 0 0 .9rem 0;
-    line-height: 1.2;
-}
-.ticket .conf-row {
-    display: flex;
-    align-items: baseline;
-    gap: .5rem;
-    margin-bottom: 1rem;
-}
-.ticket .conf-num {
-    font-family: var(--mono);
-    font-size: 2.1rem;
-    font-weight: 600;
-    color: var(--accent-ink);
-    line-height: 1;
-}
-.ticket .conf-lbl { color: var(--ink-2); font-size: .85rem; }
-.ticket .meta-row {
-    border-top: 1px solid var(--line);
-    padding-top: .8rem;
-    display: flex;
-    gap: 1.6rem;
-    font-size: .82rem;
-    color: var(--ink-2);
-}
-.ticket .meta-row b {
-    font-family: var(--mono);
-    color: var(--ink);
-    font-weight: 600;
-}
-.img-frame {
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--surface);
-}
-
-/* ── Ranked list ────────────────────────────────────────── */
-.rank-row {
-    display: flex;
-    align-items: center;
-    gap: .85rem;
-    padding: .55rem 0;
-    border-bottom: 1px solid var(--line);
-}
-.rank-row:first-child { border-top: 1px solid var(--line); }
-.rank-idx {
-    font-family: var(--mono);
-    font-size: .82rem;
-    color: var(--ink-2);
-    width: 1.4rem;
-}
-.rank-name {
-    flex: 0 0 auto;
-    min-width: 200px;
-    max-width: 260px;
-    font-size: .88rem;
-    color: var(--ink);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.rank-track {
-    flex: 1;
-    height: 6px;
-    background: var(--line);
-    border-radius: 3px;
+/* Hero */
+.hero {
+    background: linear-gradient(135deg, #0a0f1e 0%, #111827 45%, #1a0533 100%);
+    border: 1px solid #2d1f4e;
+    border-radius: 20px;
+    padding: 2.8rem 2.5rem;
+    text-align: center;
+    margin-bottom: 1.8rem;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    position: relative;
     overflow: hidden;
 }
-.rank-fill { height: 100%; background: var(--accent); }
-.rank-fill.top { background: var(--accent-ink); }
-.rank-pct {
-    font-family: var(--mono);
-    font-size: .85rem;
-    color: var(--ink);
-    width: 3.4rem;
-    text-align: right;
+.hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 70% 50%, rgba(139,92,246,0.12) 0%, transparent 65%),
+                radial-gradient(ellipse at 30% 50%, rgba(245,158,11,0.08) 0%, transparent 65%);
+    pointer-events: none;
+}
+.hero h1 { color: #f5d87e; font-size: 2.6rem; font-weight: 800; margin: 0; letter-spacing: -0.5px; }
+.hero .sub { color: #9ca3af; font-size: 0.95rem; margin-top: .5rem; }
+.hero .badges { margin-top: 1rem; }
+.badge {
+    display: inline-block;
+    background: rgba(139,92,246,0.2);
+    border: 1px solid rgba(139,92,246,0.4);
+    color: #c4b5fd;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 600;
+    padding: .25rem .75rem;
+    margin: .2rem;
 }
 
-/* ── Grad-CAM captions ──────────────────────────────────── */
-.gcam-cap {
-    font-size: .82rem;
-    color: var(--ink-2);
-    margin-bottom: .4rem;
+/* Prediction card */
+.pred-card {
+    background: linear-gradient(135deg, #111827, #1e1033);
+    border: 1px solid #2d1f4e;
+    border-radius: 18px;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
 }
-.gcam-note {
-    font-size: .85rem;
-    color: var(--ink-2);
-    border-top: 1px solid var(--line);
-    padding-top: .7rem;
-    margin-top: .9rem;
+.pred-card .emoji  { font-size: 4rem; line-height: 1; }
+.pred-card .name   { color: #f5d87e; font-size: 1.7rem; font-weight: 700; margin-top: .5rem; }
+.pred-card .conf   { color: #9ca3af; font-size: .9rem; margin-top: .25rem; }
+.pred-card .f1tag  {
+    display: inline-block;
+    margin-top: .7rem;
+    background: rgba(16,185,129,0.15);
+    border: 1px solid rgba(16,185,129,0.35);
+    color: #6ee7b7;
+    border-radius: 999px;
+    font-size: .75rem;
+    padding: .2rem .7rem;
 }
 
-/* ── Sidebar ────────────────────────────────────────────── */
+/* Section header */
+.sh {
+    font-size: .95rem; font-weight: 700;
+    color: #a78bfa;
+    border-left: 3px solid #f5d87e;
+    padding-left: .65rem;
+    margin: 1.4rem 0 .7rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+/* Bar row */
+.bar-row {
+    display: flex; align-items: center; gap: .6rem;
+    margin-bottom: .45rem;
+}
+.bar-label { color: #d1d5db; font-size: .85rem; min-width: 220px; }
+.bar-outer {
+    flex: 1; height: 10px; background: #1f2937;
+    border-radius: 999px; overflow: hidden;
+}
+.bar-inner {
+    height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, #8b5cf6, #f59e0b);
+}
+.bar-pct { color: #9ca3af; font-size: .8rem; min-width: 45px; text-align: right; }
+
+/* Sidebar */
 [data-testid="stSidebar"] {
-    background: var(--surface) !important;
-    border-right: 1px solid var(--line);
+    background: linear-gradient(180deg, #080d1a 0%, #0f1929 100%) !important;
+    border-right: 1px solid #1f2d44;
 }
-[data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-    font-size: .95rem !important;
-    font-weight: 700 !important;
-    color: var(--ink) !important;
-}
-[data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] label {
-    color: var(--ink-2) !important;
-}
-.sb-info {
-    font-size: .82rem;
-    color: var(--ink-2);
-    line-height: 1.8;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: .8rem .9rem;
-}
-.sb-info b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+[data-testid="stSidebar"] * { color: #c9d1d9 !important; }
+[data-testid="stSidebar"] h2 { color: #f5d87e !important; font-size: 1rem !important; }
 
-/* ── Buttons / progress / misc widgets ──────────────────── */
+/* Upload zone */
+[data-testid="stFileUploader"] {
+    background: #0d1525;
+    border: 2px dashed #2d3f5e;
+    border-radius: 14px;
+}
+
+/* Progress bar */
+.stProgress > div > div > div {
+    background: linear-gradient(90deg,#8b5cf6,#f59e0b) !important;
+}
+
+/* Buttons */
 .stButton > button {
-    background: var(--ink);
-    color: var(--bg) !important;
-    border: none;
-    border-radius: 6px;
-    font-weight: 600;
-    padding: .5rem 1.3rem;
+    background: linear-gradient(135deg,#4c1d95,#1e3a5f);
+    color: #f5d87e !important; border: none;
+    border-radius: 10px; font-weight: 700;
+    padding: .55rem 1.5rem; width: 100%;
+    letter-spacing: .02em;
 }
-.stButton > button:hover { background: var(--accent-ink); }
-.stProgress > div > div > div { background: var(--accent) !important; }
-[data-testid="stMetricValue"] { font-family: var(--mono); color: var(--ink); }
-details { background: var(--surface) !important; border: 1px solid var(--line) !important; border-radius: 6px !important; }
+.stButton > button:hover { opacity: .85; }
 
-/* ── Empty state ────────────────────────────────────────── */
-.empty-state {
-    padding: 2.5rem 0 1rem 0;
-    color: var(--ink-2);
-}
-.empty-state .lead { font-size: 1.02rem; color: var(--ink); margin-bottom: .3rem; }
-.empty-state .sub { font-size: .88rem; }
+/* Expander */
+details { background: #0d1525 !important; border: 1px solid #1f2d44 !important; border-radius: 10px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -384,7 +286,9 @@ class GradCAM:
         self.model = model
         self.grads = None
         self.acts  = None
+        # EfficientNetV2: last block of model.backbone.blocks
         target = list(model.backbone.blocks)[-1][-1]
+        # use the last conv available in that sub-block
         for name in ("conv_pwl", "conv_dw", "conv_exp"):
             if hasattr(target, name):
                 layer = getattr(target, name)
@@ -410,7 +314,6 @@ class GradCAM:
 
 
 def blend_cam(image: Image.Image, cam: np.ndarray, alpha: float = 0.5) -> np.ndarray:
-    import matplotlib.cm as cm
     resized  = cv2.resize(cam, (image.width, image.height))
     heatmap  = (cm.jet(resized)[:, :, :3] * 255).astype(np.uint8)
     orig     = np.array(image.convert("RGB"))
@@ -421,68 +324,60 @@ def blend_cam(image: Image.Image, cam: np.ndarray, alpha: float = 0.5) -> np.nda
 #  SIDEBAR
 # ─────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### Configuration")
-    ckpt_path = st.text_input(
-        "Checkpoint path", value=CHECKPOINT,
-        help="Path to best_fold0.pth relative to app.py",
-    )
+    st.markdown("## ⚙️ Configuration")
+    st.markdown("---")
 
-    st.divider()
-    st.markdown("### Grad-CAM")
-    show_gcam  = st.toggle("Show attention map", value=True)
-    cam_alpha  = st.slider("Overlay strength", 0.2, 0.8, 0.48, 0.02)
-    cam_target = st.selectbox("Class to visualise", ["Top prediction"] + CLASS_NAMES)
+    ckpt_path = st.text_input("📁 Checkpoint path", value=CHECKPOINT,
+                               help="Path to best_fold0.pth relative to app.py")
 
-    st.divider()
-    st.markdown("### Results")
-    top_k          = st.slider("Number of results shown", 3, 10, 5)
+    st.markdown("### 🔥 Grad-CAM")
+    show_gcam   = st.toggle("Enable Grad-CAM", value=True)
+    cam_alpha   = st.slider("Heatmap blend", 0.2, 0.8, 0.48, 0.02)
+    cam_target  = st.selectbox("Visualise class", ["Top prediction"] + CLASS_NAMES)
+
+    st.markdown("### 📊 Results")
+    top_k          = st.slider("Top-K predictions", 3, 10, 5)
     show_all_probs = st.toggle("Show full probability table", value=False)
 
-    st.divider()
-    st.markdown("### Model")
-    st.markdown(f"""
-    <div class="sb-info">
-    Architecture&nbsp; <b>{MODEL_NAME}</b><br>
-    Classes&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>{NUM_CLASSES}</b><br>
-    Input size&nbsp;&nbsp; <b>{IMG_SIZE}×{IMG_SIZE}px</b><br>
-    OOF accuracy&nbsp; <b>{OOF_ACCURACY*100:.2f}%</b><br>
-    Macro F1&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>{OOF_MACRO_F1:.4f}</b>
+    st.markdown("---")
+    st.markdown("""
+    <div style='font-size:.78rem;color:#6b7280;line-height:1.7'>
+    <b style='color:#a78bfa'>Model</b> tf_efficientnetv2_m<br>
+    <b style='color:#a78bfa'>Classes</b> 21 Nigerian foods<br>
+    <b style='color:#a78bfa'>Input</b> 224 × 224 px<br>
+    <b style='color:#a78bfa'>OOF Accuracy</b> 87.68%<br>
+    <b style='color:#a78bfa'>Macro F1</b> 0.7933
     </div>
     """, unsafe_allow_html=True)
 
-    with st.expander("All 21 classes — validation F1"):
-        class_df = pd.DataFrame({
-            "#": list(range(len(CLASS_NAMES))),
-            "Class": CLASS_NAMES,
-            "F1": [CLASS_F1.get(c, 0) for c in CLASS_NAMES],
-        })
-        st.dataframe(
-            class_df,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "#": st.column_config.NumberColumn(width="small"),
-                "F1": st.column_config.ProgressColumn(
-                    "F1", min_value=0, max_value=1, format="%.3f",
-                ),
-            },
-        )
+    st.markdown("---")
+    with st.expander("🏷️ All 21 classes"):
+        for name in CLASS_NAMES:
+            f1  = CLASS_F1.get(name, 0)
+            bar = int(f1 * 10)
+            st.markdown(
+                f"{FOOD_EMOJIS.get(name,'🍽️')} **{name}**  \n"
+                f"<small style='color:#6b7280'>OOF F1: {f1:.3f} {'█'*bar}{'░'*(10-bar)}</small>",
+                unsafe_allow_html=True,
+            )
 
 
 # ─────────────────────────────────────────────────────────────────
-#  HEADER
+#  HERO
 # ─────────────────────────────────────────────────────────────────
-st.markdown(f"""
-<div class="app-header">
-  <h1>Nigerian Food Classifier</h1>
-  <p>Upload a photo of a Nigerian dish or snack. The model identifies it and
-  shows a Grad-CAM attention map, so you can see which part of the image
-  drove its decision.</p>
-  <div class="stat-strip">
-    <div class="stat-block"><span class="num">{OOF_ACCURACY*100:.1f}%</span><span class="lbl">Accuracy</span></div>
-    <div class="stat-block"><span class="num">{NUM_CLASSES}</span><span class="lbl">Food classes</span></div>
-    <div class="stat-block"><span class="num">{IMG_SIZE}px</span><span class="lbl">Input size</span></div>
-    <div class="stat-block"><span class="num">{OOF_MACRO_F1:.3f}</span><span class="lbl">Macro F1</span></div>
+st.markdown("""
+<div class="hero">
+  <h1>🍜 Nigerian Food Classifier</h1>
+  <p class="sub">
+    Upload a photo of any Nigerian dish or snack — the AI identifies it instantly<br>
+    with visual Grad-CAM explainability so you can see <em>why</em> it decided.
+  </p>
+  <div class="badges">
+    <span class="badge">EfficientNetV2-M</span>
+    <span class="badge">21 Food Classes</span>
+    <span class="badge">87.7% Accuracy</span>
+    <span class="badge">Grad-CAM</span>
+    <span class="badge">PyTorch + timm</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -492,27 +387,25 @@ st.markdown(f"""
 #  LOAD MODEL
 # ─────────────────────────────────────────────────────────────────
 model_ok = False
-with st.spinner("Loading model weights…"):
+with st.spinner("⏳ Loading model weights…"):
     try:
         model, saved_f1, saved_ep = load_model(ckpt_path)
         model_ok = True
-        detail = []
-        if saved_f1: detail.append(f"F1 {saved_f1:.4f}")
-        if saved_ep: detail.append(f"epoch {saved_ep}")
-        detail_str = f" ({', '.join(detail)})" if detail else ""
-        st.caption(f"Checkpoint loaded — `{ckpt_path}`{detail_str}")
+        f1_str   = f"F1 {saved_f1:.4f}" if saved_f1 else ""
+        ep_str   = f" · Epoch {saved_ep}" if saved_ep else ""
+        st.success(f"✅ `{ckpt_path}` loaded  {f1_str}{ep_str}")
     except FileNotFoundError:
-        st.error(f"Checkpoint not found at `{ckpt_path}`. Place `best_fold0.pth` beside `app.py`.")
+        st.error(f"❌ `{ckpt_path}` not found. Place `best_fold0.pth` beside `app.py`.")
     except Exception as e:
-        st.error(f"Could not load checkpoint: {e}")
+        st.error(f"❌ Load error: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────
 #  FILE UPLOADER
 # ─────────────────────────────────────────────────────────────────
-st.markdown('<p class="section-label">Upload image</p>', unsafe_allow_html=True)
+st.markdown('<div class="sh">📤 Upload Image</div>', unsafe_allow_html=True)
 uploaded = st.file_uploader(
-    "Drag and drop a file, or click to browse — JPG, PNG or WEBP",
+    "Drag & drop or click — JPG / PNG / WEBP",
     type=["jpg", "jpeg", "png", "webp"],
     label_visibility="collapsed",
 )
@@ -524,7 +417,7 @@ if uploaded and model_ok:
     image  = Image.open(uploaded).convert("RGB")
     tensor = preprocess(image)
 
-    with st.spinner("Analysing image…"):
+    with st.spinner("🔍 Analysing image…"):
         with torch.no_grad():
             logits = model(tensor)
             probs  = F.softmax(logits, dim=1).squeeze().numpy()
@@ -533,58 +426,56 @@ if uploaded and model_ok:
     top_probs = probs[top_idx]
     top_names = [CLASS_NAMES[i] for i in top_idx]
 
-    best_name = top_names[0]
-    best_conf = top_probs[0]
-    best_f1   = CLASS_F1.get(best_name, 0)
-    best_idx  = int(top_idx[0])
+    best_name  = top_names[0]
+    best_conf  = top_probs[0]
+    best_emoji = FOOD_EMOJIS.get(best_name, "🍽️")
+    best_f1    = CLASS_F1.get(best_name, 0)
 
+    # ── Two-column layout ────────────────────────────────────
     col_l, col_r = st.columns([1, 1], gap="large")
 
     with col_l:
-        st.markdown('<p class="section-label">Uploaded image</p>', unsafe_allow_html=True)
-        st.markdown('<div class="img-frame">', unsafe_allow_html=True)
+        st.markdown('<div class="sh">🖼️ Uploaded Image</div>', unsafe_allow_html=True)
         st.image(image, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     with col_r:
-        st.markdown('<p class="section-label">Prediction</p>', unsafe_allow_html=True)
+        st.markdown('<div class="sh">🎯 Top Prediction</div>', unsafe_allow_html=True)
         st.markdown(f"""
-        <div class="ticket">
-          <p class="eyebrow">Best match</p>
-          <p class="name">{best_name}</p>
-          <div class="conf-row">
-            <span class="conf-num">{best_conf*100:.1f}%</span>
-            <span class="conf-lbl">confidence</span>
-          </div>
-          <div class="meta-row">
-            <span>Class <b>{best_idx:02d}</b> of {NUM_CLASSES}</span>
-            <span>Validation F1 <b>{best_f1:.3f}</b></span>
-          </div>
+        <div class="pred-card">
+          <div class="emoji">{best_emoji}</div>
+          <div class="name">{best_name}</div>
+          <div class="conf">Confidence: <b style="color:#f5d87e">{best_conf*100:.1f}%</b></div>
+          <div class="f1tag">OOF F1 Score: {best_f1:.3f}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        st.markdown(f'<p class="section-label" style="margin-top:1.3rem">Top {top_k} results</p>', unsafe_allow_html=True)
-        rows = ""
+        st.markdown(f'<div class="sh">📊 Top {top_k} Results</div>', unsafe_allow_html=True)
         for rank, (name, conf) in enumerate(zip(top_names, top_probs)):
-            pct    = conf * 100
-            fill   = "top" if rank == 0 else ""
-            rows += f"""
-            <div class="rank-row">
-              <span class="rank-idx">{rank+1:02d}</span>
-              <span class="rank-name">{name}</span>
-              <div class="rank-track"><div class="rank-fill {fill}" style="width:{pct:.1f}%"></div></div>
-              <span class="rank-pct">{pct:.1f}%</span>
-            </div>"""
-        st.markdown(rows, unsafe_allow_html=True)
+            emoji    = FOOD_EMOJIS.get(name, "🍽️")
+            pct      = conf * 100
+            bar_w    = int(pct)
+            r_colour = "#f5d87e" if rank == 0 else "#6b7280"
+            st.markdown(f"""
+            <div class="bar-row">
+              <div class="bar-label">
+                <span style="color:{r_colour};font-weight:700">#{rank+1}</span>
+                {emoji} {name}
+              </div>
+              <div class="bar-outer">
+                <div class="bar-inner" style="width:{bar_w}%"></div>
+              </div>
+              <div class="bar-pct">{pct:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
 
     # ── Grad-CAM ─────────────────────────────────────────────
     if show_gcam:
-        st.markdown('<p class="section-label" style="margin-top:1.8rem">Grad-CAM attention</p>', unsafe_allow_html=True)
+        st.markdown('<div class="sh">🔥 Grad-CAM Explainability</div>', unsafe_allow_html=True)
         try:
             gcam = GradCAM(model)
             cls_idx = (CLASS_NAMES.index(cam_target)
                        if cam_target != "Top prediction"
-                       else best_idx)
+                       else int(top_idx[0]))
             cls_label = CLASS_NAMES[cls_idx]
 
             cam_map = gcam.generate(preprocess(image), cls_idx)
@@ -592,94 +483,70 @@ if uploaded and model_ok:
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.markdown('<p class="gcam-cap">Original</p>', unsafe_allow_html=True)
-                st.markdown('<div class="img-frame">', unsafe_allow_html=True)
+                st.markdown("**Original**")
                 st.image(image, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
             with c2:
-                st.markdown('<p class="gcam-cap">Activation map</p>', unsafe_allow_html=True)
+                st.markdown("**Activation heatmap**")
                 fig, ax = plt.subplots(figsize=(4, 4))
-                fig.patch.set_facecolor("#1D1A15")
-                ax.set_facecolor("#1D1A15")
+                fig.patch.set_facecolor("#0d1525")
+                ax.set_facecolor("#0d1525")
                 resized_cam = cv2.resize(cam_map, (image.width, image.height))
-                im  = ax.imshow(resized_cam, cmap="inferno")
+                im  = ax.imshow(resized_cam, cmap="jet")
                 ax.axis("off")
                 cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-                cbar.ax.yaxis.set_tick_params(color="#9C9384")
-                plt.setp(cbar.ax.yaxis.get_ticklabels(), color="#9C9384")
+                cbar.ax.yaxis.set_tick_params(color="#9ca3af")
+                plt.setp(cbar.ax.yaxis.get_ticklabels(), color="#9ca3af")
                 buf = io.BytesIO()
                 plt.savefig(buf, format="png", bbox_inches="tight",
-                            facecolor="#1D1A15", dpi=120)
+                            facecolor="#0d1525", dpi=120)
                 plt.close(fig)
-                st.markdown('<div class="img-frame">', unsafe_allow_html=True)
                 st.image(buf.getvalue(), use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
             with c3:
-                st.markdown(f'<p class="gcam-cap">Overlay — {cls_label}</p>', unsafe_allow_html=True)
-                st.markdown('<div class="img-frame">', unsafe_allow_html=True)
+                st.markdown(f"**Overlay** · *{cls_label}*")
                 st.image(overlay, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown(
-                f'<p class="gcam-note">Highlighted regions drove the model toward '
-                f'<b style="color:var(--ink)">{cls_label}</b> '
-                f'(confidence {probs[cls_idx]*100:.1f}%). Brighter regions had more influence '
-                f'on the prediction.</p>',
-                unsafe_allow_html=True,
+            st.caption(
+                f"🔍 Highlighted regions drove the model toward **{cls_label}** "
+                f"(confidence {probs[cls_idx]*100:.1f}%). "
+                "Red = high activation · Blue = low activation."
             )
         except Exception as e:
-            st.warning(f"Grad-CAM could not run: {e}")
+            st.warning(f"⚠️ Grad-CAM could not run: {e}")
 
     # ── Full probability table ────────────────────────────────
     if show_all_probs:
-        st.markdown('<p class="section-label" style="margin-top:1.8rem">All 21 class probabilities</p>', unsafe_allow_html=True)
+        st.markdown('<div class="sh">📋 All 21 Class Probabilities</div>', unsafe_allow_html=True)
+        import pandas as pd
         df = pd.DataFrame({
-            "#": list(range(len(CLASS_NAMES))),
-            "Class": CLASS_NAMES,
-            "Probability": probs,
-            "Validation F1": [CLASS_F1.get(c, 0) for c in CLASS_NAMES],
-        }).sort_values("Probability", ascending=False).reset_index(drop=True)
-
-        st.dataframe(
-            df,
-            hide_index=True,
-            use_container_width=True,
-            height=460,
-            column_config={
-                "#": st.column_config.NumberColumn(width="small"),
-                "Probability": st.column_config.ProgressColumn(
-                    "Probability", min_value=0, max_value=1, format="%.3f",
-                ),
-                "Validation F1": st.column_config.NumberColumn(format="%.3f"),
-            },
-        )
+            "Class": [f"{FOOD_EMOJIS.get(c,'🍽️')} {c}" for c in CLASS_NAMES],
+            "Probability (%)": np.round(probs * 100, 3),
+            "OOF F1": [CLASS_F1.get(c, 0) for c in CLASS_NAMES],
+        }).sort_values("Probability (%)", ascending=False).reset_index(drop=True)
+        st.dataframe(df, use_container_width=True, height=420)
 
 elif not model_ok:
-    st.info("Set a valid checkpoint path in the sidebar, then upload an image.")
+    st.info("💡 Fix the checkpoint path in the sidebar, then upload an image.")
 
 else:
+    # ── Placeholder landing ───────────────────────────────────
     st.markdown("""
-    <div class="empty-state">
-      <p class="lead">No image uploaded yet.</p>
-      <p class="sub">Upload a photo of a Nigerian dish or snack to get a prediction —
-      Jollof Rice, Suya, Puff-Puff, Egusi Soup, Chin Chin, and 16 more.</p>
+    <div style="text-align:center;padding:3.5rem 1rem;color:#4b5563">
+      <div style="font-size:5rem">📸</div>
+      <p style="font-size:1.15rem;color:#6b7280;margin-top:1rem">
+        Upload a photo of Nigerian food or snack to get started
+      </p>
+      <p style="font-size:.85rem;color:#374151">
+        Jollof Rice · Suya · Puff-Puff · Egusi Soup · Chin Chin · and 16 more
+      </p>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown('<p class="section-label">Supported classes</p>', unsafe_allow_html=True)
-    class_df = pd.DataFrame({
-        "#": list(range(len(CLASS_NAMES))),
-        "Class": CLASS_NAMES,
-        "Validation F1": [CLASS_F1.get(c, 0) for c in CLASS_NAMES],
-    })
-    st.dataframe(
-        class_df,
-        hide_index=True,
-        use_container_width=True,
-        column_config={
-            "#": st.column_config.NumberColumn(width="small"),
-            "Validation F1": st.column_config.ProgressColumn(
-                "Validation F1", min_value=0, max_value=1, format="%.3f",
-            ),
-        },
-    )
+    st.markdown('<div class="sh">🏷️ All Supported Classes</div>', unsafe_allow_html=True)
+    cols = st.columns(3)
+    for i, name in enumerate(CLASS_NAMES):
+        f1  = CLASS_F1.get(name, 0)
+        cols[i % 3].markdown(
+            f"{FOOD_EMOJIS.get(name,'🍽️')} **{name}**  \n"
+            f"<small style='color:#4b5563'>F1: {f1:.3f}</small>",
+            unsafe_allow_html=True,
+        )
